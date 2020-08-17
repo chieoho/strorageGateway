@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 
@@ -30,7 +31,7 @@ func handleCommand(msgHeader protocol.MsgHeader, taskInfo protocol.TaskInfo) boo
 	case command.UploadReq:
 		result = true
 	default:
-		fmt.Println("unknown command")
+		log.Println("unknown command")
 		result = false
 	}
 	return result
@@ -43,11 +44,11 @@ func HandleRequest(conn net.Conn) {
 	for {
 		readLen, err := io.ReadFull(conn, packetLenBytes)
 		if err != nil {
-			fmt.Println("read packet length bytes err", err)
+			log.Println("read packet length bytes err", err)
 			break
 		}
 		if readLen == 0 {
-			fmt.Println("connection already closed by client")
+			log.Println("connection already closed by client")
 			break
 		}
 
@@ -55,34 +56,34 @@ func HandleRequest(conn net.Conn) {
 		msgBytes := make([]byte, msgLength)
 		readLen, err = io.ReadFull(conn, msgBytes[packetLenBytesNum:])
 		if err != nil {
-			fmt.Println("read msg body bytes err", err)
+			log.Println("read msg body bytes err", err)
 			break
 		}
 		if readLen == 0 {
-			fmt.Println("connection already closed by client")
+			log.Println("connection already closed by client")
 			break
 		}
 
 		var msgHeader protocol.MsgHeader
 		err, msgHeader = protocol.UnmarshalHeader(msgBytes[:msgHeaderLen], msgHeader)
 		if err != nil {
-			fmt.Println("failed to Read:", err)
+			log.Println("failed to Read:", err)
 			break
 		}
 		msgHeader.MsgLength = msgLength
-		fmt.Printf("%v\n", msgHeader)
+		log.Printf("%v\n", msgHeader)
 
 		var taskInfo = protocol.TaskInfo{}
 		if msgLength > msgHeaderLen {
 			err, taskInfo = protocol.UnmarshalTaskInfo(msgBytes[msgHeaderLen:], taskInfo)
 			if err != nil {
-				fmt.Println("failed to Read:", err)
+				log.Println("failed to Read:", err)
 				break
 			}
-			fmt.Printf("%v\n", taskInfo)
+			log.Printf("%v\n", taskInfo)
 		}
 		if !handleCommand(msgHeader, taskInfo) {
-			fmt.Println("handle command failed")
+			log.Println("handle command failed")
 			break
 		}
 	}
