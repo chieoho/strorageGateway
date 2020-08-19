@@ -12,79 +12,75 @@ import (
 	"../protocol"
 )
 
-const (
-	packetLenBytesNum = 4
-	msgHeaderLen      = 64
-)
+func HandleRequest(conn net.Conn) {
+	defer conn.Close() // close connection before exit
+	//_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute)) // set 2 minutes timeout
+	for {
+		packetBytes, res := recvData(conn)
+		if !res {
+			break
+		}
+		if !handleCommand(packetBytes, conn) {
+			log.Println("handle command failed")
+			break
+		}
+	}
+}
 
-func CheckError(err error) {
+func handleCommand(packetBytes []byte, conn net.Conn) bool {
+	var msgHeader protocol.MsgHeader
+	err := protocol.UnmarshalHeader(packetBytes[:protocol.MsgHeaderLen], &msgHeader)
+	if err != nil {
+		log.Println("failed to unmarshal header:", err)
+		return false
+	}
+	msgHeader.MsgLength = uint32(len(packetBytes))
+	log.Printf("%v\n", msgHeader)
+
+	switch msgHeader.Command {
+
+	case command.UploadReq:
+		return handleUpload(&msgHeader, packetBytes[protocol.MsgHeaderLen:], conn)
+
+	case command.DownloadReq:
+		return handleDownload(&msgHeader, packetBytes[protocol.MsgHeaderLen:], conn)
+
+	default:
+		log.Println("unknown command")
+		return false
+	}
+}
+
+func recvData(conn net.Conn) (packetBytes []byte, res bool) {
+	packetLenBytes := make([]byte, protocol.PacketLenBytesNum)
+	_, err := io.ReadFull(conn, packetLenBytes)
+	if !checkIOReadErr(err, "read packet length bytes") {
+		return packetBytes, false
+	}
+	msgLength := binary.BigEndian.Uint32(packetLenBytes)
+	msgBytes := make([]byte, msgLength)
+	_, err = io.ReadFull(conn, msgBytes[protocol.PacketLenBytesNum:])
+	if !checkIOReadErr(err, "read packet body bytes") {
+		return packetBytes, false
+	}
+	return msgBytes, true
+}
+
+func CheckTcpError(err error) {
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
 		os.Exit(1)
 	}
 }
 
-func handleCommand(msgHeader protocol.MsgHeader, taskInfo protocol.TaskInfo) bool {
-	var result bool
-
-	switch msgHeader.Command {
-	case command.UploadReq:
-		result = true
-	default:
-		log.Println("unknown command")
-		result = false
+func checkIOReadErr(err error, info string) bool {
+	if err != nil {
+		if err == io.EOF {
+			log.Printf("connection closed when %s\n", info)
+			return false
+		}
+		log.Printf("%s err: %s\n", info, err)
+		return false
 	}
-	return result
-}
-
-func HandleRequest(conn net.Conn) {
-	defer conn.Close() // close connection before exit
-	//_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute)) // set 2 minutes timeout
-	packetLenBytes := make([]byte, packetLenBytesNum)
-	for {
-		readLen, err := io.ReadFull(conn, packetLenBytes)
-		if err != nil {
-			log.Println("read packet length bytes err", err)
-			break
-		}
-		if readLen == 0 {
-			log.Println("connection already closed by client")
-			break
-		}
-
-		msgLength := binary.BigEndian.Uint32(packetLenBytes)
-		msgBytes := make([]byte, msgLength)
-		readLen, err = io.ReadFull(conn, msgBytes[packetLenBytesNum:])
-		if err != nil {
-			log.Println("read msg body bytes err", err)
-			break
-		}
-		if readLen == 0 {
-			log.Println("connection already closed by client")
-			break
-		}
-
-		var msgHeader protocol.MsgHeader
-		err, msgHeader = protocol.UnmarshalHeader(msgBytes[:msgHeaderLen], msgHeader)
-		if err != nil {
-			log.Println("failed to Read:", err)
-			break
-		}
-		msgHeader.MsgLength = msgLength
-		log.Printf("%v\n", msgHeader)
-
-		var taskInfo = protocol.TaskInfo{}
-		if msgLength > msgHeaderLen {
-			err, taskInfo = protocol.UnmarshalTaskInfo(msgBytes[msgHeaderLen:], taskInfo)
-			if err != nil {
-				log.Println("failed to Read:", err)
-				break
-			}
-			log.Printf("%v\n", taskInfo)
-		}
-		if !handleCommand(msgHeader, taskInfo) {
-			log.Println("handle command failed")
-			break
-		}
-	}
+	return true
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"log"
 	"net"
 	"os"
@@ -10,8 +11,13 @@ import (
 
 // init is called prior to main.
 func init() {
-	// Change the device for logging to stdout.
-	log.SetOutput(os.Stdout)
+	logFile, err := os.OpenFile("sgw.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	mw := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(mw)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
 func main() {
@@ -23,9 +29,9 @@ func main() {
 		service = "0.0.0.0:9200"
 	}
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
-	handler.CheckError(err)
+	handler.CheckTcpError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
-	handler.CheckError(err)
+	handler.CheckTcpError(err)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

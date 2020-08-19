@@ -8,6 +8,10 @@ import (
 const (
 	Md5Len     = 32
 	MaxNameLen = 255
+
+	PacketLenBytesNum = 4
+	MsgHeaderLen      = 64
+	TaskInfoLen       = 341
 )
 
 type MsgHeader struct {
@@ -45,31 +49,31 @@ type TaskInfo struct {
 	Padding   [4]uint8 // 填充到 64B 对齐
 
 	FileLen     uint64
-	FileMd5     [Md5Len + 1]uint8
-	FileName    [MaxNameLen + 1]uint8
+	FileMd5     [Md5Len + 1]byte
+	FileName    [MaxNameLen + 1]byte
 	MetadataLen uint32
-	Metadata    [0]uint8
+	Metadata    [0]byte
 }
 
-func UnmarshalHeader(inBytes []byte, msgHeader MsgHeader) (error, MsgHeader) {
+func UnmarshalHeader(inBytes []byte, msgHeader *MsgHeader) error {
 	inBytesBuf := bytes.NewBuffer(inBytes)
-	err := binary.Read(inBytesBuf, binary.BigEndian, &msgHeader)
-	return err, msgHeader
+	err := binary.Read(inBytesBuf, binary.BigEndian, msgHeader)
+	return err
 }
 
-func MarshalHeader(msgHeader MsgHeader) (error, []byte) {
+func MarshalHeader(msgHeader *MsgHeader) (error, []byte) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, msgHeader)
 	return err, buf.Bytes()
 }
 
-func UnmarshalTaskInfo(inBytes []byte, taskInfo TaskInfo) (error, TaskInfo) {
+func UnmarshalTaskInfo(inBytes []byte, taskInfo *TaskInfo) error {
 	inBytesBuf := bytes.NewBuffer(inBytes)
-	err := binary.Read(inBytesBuf, binary.BigEndian, &taskInfo)
-	return err, taskInfo
+	err := binary.Read(inBytesBuf, binary.BigEndian, taskInfo)
+	return err
 }
 
-func MarshalTaskInfo(taskInfo TaskInfo) (error, []byte) {
+func MarshalTaskInfo(taskInfo *TaskInfo) (error, []byte) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, taskInfo)
 	return err, buf.Bytes()
