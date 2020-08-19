@@ -32,6 +32,7 @@ func main() {
 	handler.CheckTcpError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	handler.CheckTcpError(err)
+	log.Printf("serve on %s", service)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
