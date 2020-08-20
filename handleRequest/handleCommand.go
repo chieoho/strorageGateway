@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"log"
 	"net"
 	"os"
@@ -95,6 +97,7 @@ func handleStartDownload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, co
 }
 
 func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn net.Conn) bool {
+	md5Ctx := md5.New()
 	for {
 		packetBytes, res := recvData(conn)
 		if !res {
@@ -114,11 +117,25 @@ func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn ne
 			if !sendAck(msgHeader, ack.OK, conn) {
 				return false
 			}
+			md5Ctx.Write(packetBytes[protocol.MsgHeaderLen:])
 		} else {
 			if err := dataFile.Close(); err != nil {
 				sendAck(msgHeader, ack.NotFound, conn)
 				return false
 			}
+			cipherStr := md5Ctx.Sum(nil)
+			md5Str := hex.EncodeToString(cipherStr)
+			var taskInfo protocol.TaskInfo
+			if err := protocol.UnmarshalTaskInfo(packetBytes[protocol.MsgHeaderLen:], &taskInfo); err != nil {
+				log.Println("failed to Read:", err)
+				sendAck(msgHeader, ack.NotFound, conn)
+				return false
+			}
+			md5Bytes := taskInfo.FileMd5
+			if md5Str != string(md5Bytes[:32]) {
+				return false
+			}
+			log.Println(md5Str)
 			if !sendAck(msgHeader, ack.OK, conn) {
 				return false
 			}
