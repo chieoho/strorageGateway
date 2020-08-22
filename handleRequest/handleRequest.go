@@ -13,7 +13,10 @@ import (
 )
 
 func HandleRequest(conn net.Conn) {
-	defer conn.Close() // close connection before exit
+	defer func() {
+		err := conn.Close() // close connection before exit
+		log.Println(err)
+	}()
 	//_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute)) // set 2 minutes timeout
 	for {
 		packetBytes, res := recvData(conn)
