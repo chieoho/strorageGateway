@@ -50,9 +50,9 @@ func handleStartUpload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, conn
 		return dataFiles, false
 	}
 	nameBytes := taskInfo.FileName
-	filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+	fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
 	for _, backendPath := range arguments.BackendPathArray {
-		filePath = backendPath + filePath
+		filePath := filepath.Join(backendPath, fileRelativePath)
 		log.Printf("%s", filePath)
 		if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
 			log.Printf("create dir err: %s", err)
@@ -83,8 +83,8 @@ func handleStartDownload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, co
 		return dataFile, false
 	}
 	nameBytes := taskInfo.FileName
-	filePath := string(nameBytes[:bytes.Index(nameBytes[1:], []byte{0})])
-	filePath = arguments.BackendPathArray[0] + filePath
+	fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+	filePath := filepath.Join(arguments.BackendPathArray[0], fileRelativePath)
 	log.Printf("%s", filePath)
 	dataFile, err := os.OpenFile(filePath, os.O_RDONLY, 0644)
 	if err != nil {
@@ -144,9 +144,10 @@ func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFiles []*os.File, conn
 				return false
 			}
 			nameBytes := taskInfo.FileName
-			filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+			fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
 			for _, backendPath := range arguments.BackendPathArray {
-				hashPath := filepath.Dir(backendPath+filePath) + "/.hash"
+				filePath := filepath.Join(backendPath, fileRelativePath)
+				hashPath := filepath.Dir(filePath) + "/.hash"
 				hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 				_, _ = hashFile.Write([]byte(md5Str + "\n"))
 			}
@@ -186,8 +187,9 @@ func handleDownloadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn 
 			md5Bytes := taskInfo.FileMd5
 			if md5Bytes[0] != 0 {
 				nameBytes := taskInfo.FileName
-				filePath := string(nameBytes[:bytes.Index(nameBytes[1:], []byte{0})])
-				hashPath := filepath.Dir(arguments.BackendPathArray[0]+filePath) + "/.hash"
+				fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+				filePath := filepath.Join(arguments.BackendPathArray[0], fileRelativePath)
+				hashPath := filepath.Dir(filePath) + "/.hash"
 				hashFile, _ := os.OpenFile(hashPath, os.O_RDONLY, 0644)
 				buf := make([]byte, 33)
 				for {
