@@ -10,17 +10,18 @@ import (
 	"path/filepath"
 
 	"../acknowledge"
+	"../arguments"
 	"../command"
 	"../protocol"
 )
 
 func handleUpload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, conn net.Conn) bool {
-	dataFile, res := handleStartUpload(msgHeader, taskInfoBytes, conn)
+	dataFiles, res := handleStartUpload(msgHeader, taskInfoBytes, conn)
 	if !res {
 		return false
 	}
 
-	if !handleUploadBlock(msgHeader, dataFile, conn) {
+	if !handleUploadBlock(msgHeader, dataFiles, conn) {
 		return false
 	}
 
@@ -39,34 +40,37 @@ func handleDownload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, conn ne
 	return true
 }
 
-func handleStartUpload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, conn net.Conn) (*os.File, bool) {
+func handleStartUpload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, conn net.Conn) ([]*os.File, bool) {
 	var taskInfo protocol.TaskInfo
-	var dataFile *os.File
+	var dataFiles []*os.File
 
 	if err := protocol.UnmarshalTaskInfo(taskInfoBytes, &taskInfo); err != nil {
 		log.Println("failed to Read:", err)
 		sendAck(msgHeader, ack.NotFound, conn)
-		return dataFile, false
+		return dataFiles, false
 	}
 	nameBytes := taskInfo.FileName
 	filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
-	filePath = "/sgw11/" + filePath
-	log.Printf("%s", filePath)
-	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
-		log.Printf("create dir err: %s", err)
-		sendAck(msgHeader, ack.NotFound, conn)
-		return dataFile, false
-	}
-	dataFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println(err)
-		sendAck(msgHeader, ack.NotFound, conn)
-		return dataFile, false
+	for _, backendPath := range arguments.BackendPathArray {
+		filePath = backendPath + filePath
+		log.Printf("%s", filePath)
+		if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+			log.Printf("create dir err: %s", err)
+			sendAck(msgHeader, ack.NotFound, conn)
+			return dataFiles, false
+		}
+		dataFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+			sendAck(msgHeader, ack.NotFound, conn)
+			return dataFiles, false
+		}
+		dataFiles = append(dataFiles, dataFile)
 	}
 	if !sendAck(msgHeader, ack.OK, conn) {
-		return dataFile, false
+		return dataFiles, false
 	}
-	return dataFile, true
+	return dataFiles, true
 }
 
 func handleStartDownload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, conn net.Conn) (*os.File, bool) {
@@ -79,8 +83,8 @@ func handleStartDownload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, co
 		return dataFile, false
 	}
 	nameBytes := taskInfo.FileName
-	filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
-	filePath = "/sgw11" + filePath
+	filePath := string(nameBytes[:bytes.Index(nameBytes[1:], []byte{0})])
+	filePath = arguments.BackendPathArray[0] + filePath
 	log.Printf("%s", filePath)
 	dataFile, err := os.OpenFile(filePath, os.O_RDONLY, 0644)
 	if err != nil {
@@ -96,7 +100,7 @@ func handleStartDownload(msgHeader *protocol.MsgHeader, taskInfoBytes []byte, co
 	return dataFile, true
 }
 
-func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn net.Conn) bool {
+func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFiles []*os.File, conn net.Conn) bool {
 	md5Ctx := md5.New()
 	for {
 		packetBytes, res := recvData(conn)
@@ -110,18 +114,22 @@ func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn ne
 			return false
 		}
 		if msgHeader.Command == command.UploadBlock {
-			if _, err := dataFile.Write(packetBytes[protocol.MsgHeaderLen:]); err != nil {
-				sendAck(msgHeader, ack.NotFound, conn)
-				return false
-			}
-			if !sendAck(msgHeader, ack.OK, conn) {
-				return false
+			for _, dataFile := range dataFiles {
+				if _, err := dataFile.Write(packetBytes[protocol.MsgHeaderLen:]); err != nil {
+					sendAck(msgHeader, ack.NotFound, conn)
+					return false
+				}
+				if !sendAck(msgHeader, ack.OK, conn) {
+					return false
+				}
 			}
 			md5Ctx.Write(packetBytes[protocol.MsgHeaderLen:])
 		} else {
-			if err := dataFile.Close(); err != nil {
-				sendAck(msgHeader, ack.NotFound, conn)
-				return false
+			for _, dataFile := range dataFiles {
+				if err := dataFile.Close(); err != nil {
+					sendAck(msgHeader, ack.NotFound, conn)
+					return false
+				}
 			}
 			cipherStr := md5Ctx.Sum(nil)
 			md5Str := hex.EncodeToString(cipherStr)
@@ -137,9 +145,12 @@ func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn ne
 			}
 			nameBytes := taskInfo.FileName
 			filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
-			hashPath := filepath.Dir("/sgw11/"+filePath) + "/.hash"
-			hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-			_, _ = hashFile.Write([]byte(md5Str + "\n"))
+			for _, backendPath := range arguments.BackendPathArray {
+				hashPath := filepath.Dir(backendPath+filePath) + "/.hash"
+				hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+				_, _ = hashFile.Write([]byte(md5Str + "\n"))
+			}
+
 			if !sendAck(msgHeader, ack.OK, conn) {
 				return false
 			}
@@ -175,8 +186,8 @@ func handleDownloadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn 
 			md5Bytes := taskInfo.FileMd5
 			if md5Bytes[0] != 0 {
 				nameBytes := taskInfo.FileName
-				filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
-				hashPath := filepath.Dir("/sgw11/"+filePath) + "/.hash"
+				filePath := string(nameBytes[:bytes.Index(nameBytes[1:], []byte{0})])
+				hashPath := filepath.Dir(arguments.BackendPathArray[0]+filePath) + "/.hash"
 				hashFile, _ := os.OpenFile(hashPath, os.O_RDONLY, 0644)
 				buf := make([]byte, 33)
 				for {

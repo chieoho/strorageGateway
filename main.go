@@ -1,13 +1,12 @@
 package main
 
 import (
-	"flag"
 	"io"
 	"log"
 	"net"
 	"os"
-	"strings"
 
+	"./arguments"
 	"./handleRequest"
 )
 
@@ -20,20 +19,18 @@ func init() {
 	mw := io.MultiWriter(os.Stdout, logFile)
 	log.SetOutput(mw)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	arguments.GetArgs()
 }
 
 func main() {
-	portPtr := flag.String("p", "7788", "端口号，如：7788")
-	BackendPath := flag.String("b", "/sgw11/", "后端存储目录，如：/sgw11/,/sgw12/")
-	flag.Parse()
-
-	service := "0.0.0.0:" + *portPtr
+	service := "0.0.0.0:" + arguments.ServerPort
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
 	handler.CheckTcpError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	handler.CheckTcpError(err)
 	log.Printf("serve on %s", service)
-	log.Printf("backend path list: %v", strings.Split(*BackendPath, ","))
+	log.Printf("backend path list: %v", arguments.BackendPathArray)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
