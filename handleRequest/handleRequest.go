@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -68,7 +67,7 @@ func recvData(conn net.Conn) (packetBytes []byte, res bool) {
 
 func CheckTcpError(err error) {
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
+		log.Println(err)
 		os.Exit(1)
 	}
 }

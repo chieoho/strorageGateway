@@ -135,7 +135,11 @@ func handleUploadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn ne
 			if md5Str != string(md5Bytes[:32]) {
 				return false
 			}
-			log.Println(md5Str)
+			nameBytes := taskInfo.FileName
+			filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+			hashPath := filepath.Dir("/sgw11/"+filePath) + "/.hash"
+			hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+			_, _ = hashFile.Write([]byte(md5Str + "\n"))
 			if !sendAck(msgHeader, ack.OK, conn) {
 				return false
 			}
@@ -161,6 +165,31 @@ func handleDownloadBlock(msgHeader *protocol.MsgHeader, dataFile *os.File, conn 
 			if err := dataFile.Close(); err != nil {
 				sendAck(msgHeader, ack.NotFound, conn)
 				return false
+			}
+			var taskInfo protocol.TaskInfo
+			if err := protocol.UnmarshalTaskInfo(packetBytes[protocol.MsgHeaderLen:], &taskInfo); err != nil {
+				log.Println("failed to Read:", err)
+				sendAck(msgHeader, ack.NotFound, conn)
+				return false
+			}
+			md5Bytes := taskInfo.FileMd5
+			if md5Bytes[0] != 0 {
+				nameBytes := taskInfo.FileName
+				filePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+				hashPath := filepath.Dir("/sgw11/"+filePath) + "/.hash"
+				hashFile, _ := os.OpenFile(hashPath, os.O_RDONLY, 0644)
+				buf := make([]byte, 33)
+				for {
+					_, err := hashFile.Read(buf)
+					if err != nil {
+						log.Println(err)
+						sendAck(msgHeader, ack.NotFound, conn)
+						return false
+					}
+					if string(md5Bytes[:32]) == string(buf[:32]) {
+						break
+					}
+				}
 			}
 			if !sendAck(msgHeader, ack.OK, conn) {
 				return false
