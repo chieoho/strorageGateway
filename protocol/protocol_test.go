@@ -7,63 +7,58 @@ import (
 
 func TestUnmarshalHeader(t *testing.T) {
 	inBytes := make([]byte, MsgHeaderLen)
-	var msgHeader MsgHeader
+	var packet Packet
 
 	inBytes[3] = MsgHeaderLen
-	//fmt.Println(inBytes)
-	err := UnmarshalHeader(inBytes, &msgHeader)
+	err := packet.unmarshal(inBytes, &packet.Header)
 	if err != nil {
 		fmt.Println("failed to Read:", err)
 	}
-	//fmt.Printf("%v\n", msgHeader)
-	if msgHeader.MsgLength != MsgHeaderLen {
+	if packet.Header.MsgLength != MsgHeaderLen {
 		t.Error("unmarshal header failed")
-	}
-}
-
-func TestMarshalHeader(t *testing.T) {
-	var msgHeader = MsgHeader{MsgLength: 264}
-	var outBytes []byte
-
-	//fmt.Printf("%v\n", msgHeader)
-	err, outBytes := MarshalHeader(&msgHeader)
-	if err != nil {
-		fmt.Println("failed to Write:", err)
-	}
-	//fmt.Println(outBytes)
-	if outBytes[2] != 1 || outBytes[3] != 8 {
-		t.Error("marshal header failed")
 	}
 }
 
 func TestUnmarshalTaskInfo(t *testing.T) {
 	inBytes := make([]byte, TaskInfoLen)
-	var taskInfo TaskInfo
+	var packet Packet
 	const regionId = 8
 
 	inBytes[3] = regionId
-	//fmt.Println(inBytes)
-	err := UnmarshalTaskInfo(inBytes, &taskInfo)
+	packet.DataBytes = inBytes
+	err := packet.UnmarshalTaskInfo()
 	if err != nil {
 		fmt.Println("failed to Read:", err)
 	}
-	//fmt.Printf("%v\n", taskInfo)
-	if taskInfo.RegionId != regionId {
-		t.Error("unmarshal header failed")
+	if packet.Data.RegionId != regionId {
+		t.Error("unmarshal data failed")
+	}
+}
+
+func TestMarshalHeader(t *testing.T) {
+	var packet Packet
+	var outBytes []byte
+
+	packet.Header.MsgLength = 264
+	err, outBytes := packet.Marshal(&packet.Header)
+	if err != nil {
+		fmt.Println("failed to Write:", err)
+	}
+	if outBytes[2] != 1 || outBytes[3] != 8 {
+		t.Error("marshal header failed")
 	}
 }
 
 func TestMarshalTaskInfo(t *testing.T) {
 	var taskInfo = TaskInfo{RegionId: 8}
+	var packet Packet
 	var outBytes []byte
 
-	//fmt.Printf("%v\n", msgHeader)
-	err, outBytes := MarshalTaskInfo(&taskInfo)
+	err, outBytes := packet.Marshal(&taskInfo)
 	if err != nil {
 		fmt.Println("failed to Write:", err)
 	}
-	//fmt.Println(outBytes)
 	if outBytes[3] != 8 {
-		t.Error("marshal header failed")
+		t.Error("marshal data failed")
 	}
 }

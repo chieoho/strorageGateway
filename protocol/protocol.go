@@ -1,8 +1,12 @@
 package protocol
 
 import (
+	"../command"
 	"bytes"
 	"encoding/binary"
+	"io"
+	"log"
+	"net"
 )
 
 const (
@@ -30,7 +34,6 @@ type MsgHeader struct {
 	Offset    uint64   // 偏移量
 	Count     uint32   // 数据量
 	Padding   [4]uint8 // 填充到 64B 对齐
-	Data      [0]uint8
 }
 
 type TaskInfo struct {
@@ -55,26 +58,74 @@ type TaskInfo struct {
 	Metadata    [0]byte
 }
 
-func UnmarshalHeader(inBytes []byte, msgHeader *MsgHeader) error {
-	inBytesBuf := bytes.NewBuffer(inBytes)
-	err := binary.Read(inBytesBuf, binary.BigEndian, msgHeader)
+type Packet struct {
+	Header    MsgHeader
+	Data      TaskInfo
+	DataBytes []byte
+}
+
+func (p *Packet) RecvData(conn net.Conn) bool {
+	packetLenBytes := make([]byte, PacketLenBytesNum)
+	_, err := io.ReadFull(conn, packetLenBytes)
+	if !p.checkIOReadErr(err, "read packet length bytes") {
+		return false
+	}
+	msgLength := binary.BigEndian.Uint32(packetLenBytes)
+	msgBytes := make([]byte, msgLength)
+	_, err = io.ReadFull(conn, msgBytes[PacketLenBytesNum:])
+	if !p.checkIOReadErr(err, "read packet body bytes") {
+		return false
+	}
+	_ = p.unmarshal(msgBytes[:MsgHeaderLen], &p.Header)
+	p.DataBytes = msgBytes[MsgHeaderLen:]
+	return true
+}
+
+func (p *Packet) UnmarshalTaskInfo() error {
+	err := p.unmarshal(p.DataBytes, &p.Data)
 	return err
 }
 
-func MarshalHeader(msgHeader *MsgHeader) (error, []byte) {
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, msgHeader)
-	return err, buf.Bytes()
-}
-
-func UnmarshalTaskInfo(inBytes []byte, taskInfo *TaskInfo) error {
+func (p *Packet) unmarshal(inBytes []byte, packet interface{}) error {
 	inBytesBuf := bytes.NewBuffer(inBytes)
-	err := binary.Read(inBytesBuf, binary.BigEndian, taskInfo)
+	err := binary.Read(inBytesBuf, binary.BigEndian, packet)
 	return err
 }
 
-func MarshalTaskInfo(taskInfo *TaskInfo) (error, []byte) {
+func (p *Packet) Marshal(packet interface{}) (error, []byte) {
 	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, taskInfo)
+	err := binary.Write(buf, binary.BigEndian, packet)
 	return err, buf.Bytes()
+}
+
+func (p *Packet) SendAck(ack uint32, conn net.Conn) bool {
+	p.Header.AckCode = ack
+	return p.sendData(nil, conn)
+}
+
+func (p *Packet) SendBlock(dataBytes []byte, conn net.Conn) bool {
+	p.Header.Command = command.DownloadBlockRet
+	return p.sendData(dataBytes, conn)
+}
+
+func (p *Packet) sendData(dataBytes []byte, conn net.Conn) bool {
+	p.Header.MsgLength = MsgHeaderLen + uint32(len(dataBytes))
+	_, msgHeaderBytes := p.Marshal(&p.Header)
+	if _, err := conn.Write(append(msgHeaderBytes, dataBytes...)); err != nil {
+		log.Println(err)
+		return false
+	}
+	return true
+}
+
+func (p *Packet) checkIOReadErr(err error, info string) bool {
+	if err != nil {
+		if err == io.EOF {
+			log.Printf("connection closed when %s\n", info)
+			return false
+		}
+		log.Printf("%s err: %s\n", info, err)
+		return false
+	}
+	return true
 }
