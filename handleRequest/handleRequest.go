@@ -15,25 +15,25 @@ func HandleRequest(conn net.Conn) {
 		log.Println(err)
 	}()
 	//_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute)) // set 2 minutes timeout
-	var packet protocol.Packet
+	var packet = protocol.Packet{Conn: conn}
 	for {
-		res := packet.RecvData(conn)
+		res := packet.RecvData()
 		if !res {
 			break
 		}
-		if !handleCommand(packet, conn) {
+		if !handleCommand(packet) {
 			log.Println("handle command failed")
 			break
 		}
 	}
 }
 
-func handleCommand(packet protocol.Packet, conn net.Conn) bool {
+func handleCommand(packet protocol.Packet) bool {
 	switch packet.Header.Command {
 	case command.UploadReq:
-		return handleUpload(&packet, conn)
+		return handleUpload(&packet)
 	case command.DownloadReq:
-		return handleDownload(&packet, conn)
+		return handleDownload(&packet)
 	default:
 		log.Println("unknown command")
 		return false

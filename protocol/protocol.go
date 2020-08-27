@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 )
 
 const (
@@ -62,17 +63,19 @@ type Packet struct {
 	Header    MsgHeader
 	Data      TaskInfo
 	DataBytes []byte
+	Conn      net.Conn
+	Fds       []*os.File
 }
 
-func (p *Packet) RecvData(conn net.Conn) bool {
+func (p *Packet) RecvData() bool {
 	packetLenBytes := make([]byte, PacketLenBytesNum)
-	_, err := io.ReadFull(conn, packetLenBytes)
+	_, err := io.ReadFull(p.Conn, packetLenBytes)
 	if !p.checkIOReadErr(err, "read packet length bytes") {
 		return false
 	}
 	msgLength := binary.BigEndian.Uint32(packetLenBytes)
 	msgBytes := make([]byte, msgLength)
-	_, err = io.ReadFull(conn, msgBytes[PacketLenBytesNum:])
+	_, err = io.ReadFull(p.Conn, msgBytes[PacketLenBytesNum:])
 	if !p.checkIOReadErr(err, "read packet body bytes") {
 		return false
 	}
@@ -98,20 +101,20 @@ func (p *Packet) Marshal(packet interface{}) (error, []byte) {
 	return err, buf.Bytes()
 }
 
-func (p *Packet) SendAck(ack uint32, conn net.Conn) bool {
+func (p *Packet) SendAck(ack uint32) bool {
 	p.Header.AckCode = ack
-	return p.sendData(nil, conn)
+	return p.sendData(nil)
 }
 
-func (p *Packet) SendBlock(dataBytes []byte, conn net.Conn) bool {
+func (p *Packet) SendBlock(dataBytes []byte) bool {
 	p.Header.Command = command.DownloadBlockRet
-	return p.sendData(dataBytes, conn)
+	return p.sendData(dataBytes)
 }
 
-func (p *Packet) sendData(dataBytes []byte, conn net.Conn) bool {
+func (p *Packet) sendData(dataBytes []byte) bool {
 	p.Header.MsgLength = MsgHeaderLen + uint32(len(dataBytes))
 	_, msgHeaderBytes := p.Marshal(&p.Header)
-	if _, err := conn.Write(append(msgHeaderBytes, dataBytes...)); err != nil {
+	if _, err := p.Conn.Write(append(msgHeaderBytes, dataBytes...)); err != nil {
 		log.Println(err)
 		return false
 	}
