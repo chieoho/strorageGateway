@@ -35,17 +35,6 @@ func (u *UploadHandler) Handle(packet *protocol.Packet) bool {
 	return true
 }
 
-func (d *DownloadHandler) Handle(packet *protocol.Packet) bool {
-	res := d.handleStartDownload(packet)
-	if !res {
-		return false
-	}
-	if !d.handleDownloadBlock(packet) {
-		return false
-	}
-	return true
-}
-
 func (u *UploadHandler) handleStartUpload(packet *protocol.Packet) bool {
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
@@ -128,6 +117,17 @@ func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {
 		_, _ = hashFile.Write([]byte(md5Str + "\n"))
 	}
 	if !packet.SendAck(ack.OK) {
+		return false
+	}
+	return true
+}
+
+func (d *DownloadHandler) Handle(packet *protocol.Packet) bool {
+	res := d.handleStartDownload(packet)
+	if !res {
+		return false
+	}
+	if !d.handleDownloadBlock(packet) {
 		return false
 	}
 	return true
