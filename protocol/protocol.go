@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 )
 
 const (
@@ -64,7 +63,6 @@ type Packet struct {
 	Data      TaskInfo
 	DataBytes []byte
 	Conn      net.Conn
-	Fds       []*os.File
 }
 
 func (p *Packet) RecvData() bool {

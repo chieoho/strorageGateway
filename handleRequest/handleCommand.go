@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"hash"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,18 +15,38 @@ import (
 	"../protocol"
 )
 
-func handleUpload(packet *protocol.Packet) bool {
-	res := handleStartUpload(packet)
+type UploadHandler struct {
+	WriteFds []*os.File
+	md5Ctx   hash.Hash
+}
+
+type DownloadHandler struct {
+	ReadFds []*os.File
+}
+
+func (u *UploadHandler) Handle(packet *protocol.Packet) bool {
+	res := u.handleStartUpload(packet)
 	if !res {
 		return false
 	}
-	if !handleUploadBlock(packet) {
+	if !u.handleUploadBlock(packet) {
 		return false
 	}
 	return true
 }
 
-func handleStartUpload(packet *protocol.Packet) bool {
+func (d *DownloadHandler) Handle(packet *protocol.Packet) bool {
+	res := d.handleStartDownload(packet)
+	if !res {
+		return false
+	}
+	if !d.handleDownloadBlock(packet) {
+		return false
+	}
+	return true
+}
+
+func (u *UploadHandler) handleStartUpload(packet *protocol.Packet) bool {
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
 		packet.SendAck(ack.NotFound)
@@ -47,7 +68,7 @@ func handleStartUpload(packet *protocol.Packet) bool {
 			packet.SendAck(ack.NotFound)
 			return false
 		}
-		packet.Fds = append(packet.Fds, fd)
+		u.WriteFds = append(u.WriteFds, fd)
 	}
 	if !packet.SendAck(ack.OK) {
 		return false
@@ -55,8 +76,8 @@ func handleStartUpload(packet *protocol.Packet) bool {
 	return true
 }
 
-func handleUploadBlock(packet *protocol.Packet) bool {
-	md5Ctx := md5.New()
+func (u *UploadHandler) handleUploadBlock(packet *protocol.Packet) bool {
+	u.md5Ctx = md5.New()
 	for {
 		res := packet.RecvData()
 		if !res {
@@ -64,7 +85,7 @@ func handleUploadBlock(packet *protocol.Packet) bool {
 			return false
 		}
 		if packet.Header.Command == command.UploadBlock {
-			for _, fd := range packet.Fds {
+			for _, fd := range u.WriteFds {
 				if _, err := fd.Write(packet.DataBytes); err != nil {
 					packet.SendAck(ack.NotFound)
 					return false
@@ -73,54 +94,46 @@ func handleUploadBlock(packet *protocol.Packet) bool {
 					return false
 				}
 			}
-			md5Ctx.Write(packet.DataBytes)
+			u.md5Ctx.Write(packet.DataBytes)
 		} else {
-			for _, fd := range packet.Fds {
-				if err := fd.Close(); err != nil {
-					packet.SendAck(ack.NotFound)
-					return false
-				}
-			}
-			cipherStr := md5Ctx.Sum(nil)
-			md5Str := hex.EncodeToString(cipherStr)
-			if err := packet.UnmarshalTaskInfo(); err != nil {
-				log.Println("failed to Read:", err)
-				packet.SendAck(ack.NotFound)
-				return false
-			}
-			md5Bytes := packet.Data.FileMd5
-			if md5Str != string(md5Bytes[:32]) {
-				return false
-			}
-			nameBytes := packet.Data.FileName
-			fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
-			for _, backendPath := range arguments.BackendPathArray {
-				filePath := filepath.Join(backendPath, fileRelativePath)
-				hashPath := filepath.Dir(filePath) + "/.hash"
-				hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-				_, _ = hashFile.Write([]byte(md5Str + "\n"))
-			}
-			if !packet.SendAck(ack.OK) {
-				return false
-			}
-			break
+			return u.handleUploadBlockEnd(packet)
 		}
 	}
+}
+
+func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {
+	for _, fd := range u.WriteFds {
+		if err := fd.Close(); err != nil {
+			packet.SendAck(ack.NotFound)
+			return false
+		}
+	}
+	cipherStr := u.md5Ctx.Sum(nil)
+	md5Str := hex.EncodeToString(cipherStr)
+	if err := packet.UnmarshalTaskInfo(); err != nil {
+		log.Println("failed to Read:", err)
+		packet.SendAck(ack.NotFound)
+		return false
+	}
+	md5Bytes := packet.Data.FileMd5
+	if md5Str != string(md5Bytes[:32]) {
+		return false
+	}
+	nameBytes := packet.Data.FileName
+	fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+	for _, backendPath := range arguments.BackendPathArray {
+		filePath := filepath.Join(backendPath, fileRelativePath)
+		hashPath := filepath.Dir(filePath) + "/.hash"
+		hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		_, _ = hashFile.Write([]byte(md5Str + "\n"))
+	}
+	if !packet.SendAck(ack.OK) {
+		return false
+	}
 	return true
 }
 
-func handleDownload(packet *protocol.Packet) bool {
-	res := handleStartDownload(packet)
-	if !res {
-		return false
-	}
-	if !handleDownloadBlock(packet) {
-		return false
-	}
-	return true
-}
-
-func handleStartDownload(packet *protocol.Packet) bool {
+func (d *DownloadHandler) handleStartDownload(packet *protocol.Packet) bool {
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
 		packet.SendAck(ack.NotFound)
@@ -136,7 +149,7 @@ func handleStartDownload(packet *protocol.Packet) bool {
 		packet.SendAck(ack.NotFound)
 		return false
 	}
-	packet.Fds = append(packet.Fds, fd)
+	d.ReadFds = append(d.ReadFds, fd)
 	fi, _ := fd.Stat()
 	packet.Header.Total = uint64(fi.Size())
 	if !packet.SendAck(ack.OK) {
@@ -145,7 +158,7 @@ func handleStartDownload(packet *protocol.Packet) bool {
 	return true
 }
 
-func handleDownloadBlock(packet *protocol.Packet) bool {
+func (d *DownloadHandler) handleDownloadBlock(packet *protocol.Packet) bool {
 	for {
 		res := packet.RecvData()
 		if !res {
@@ -153,42 +166,10 @@ func handleDownloadBlock(packet *protocol.Packet) bool {
 			return false
 		}
 		if packet.Header.Command == command.DownloadBlockEnd {
-			if err := packet.Fds[0].Close(); err != nil {
-				packet.SendAck(ack.NotFound)
-				return false
-			}
-			if err := packet.UnmarshalTaskInfo(); err != nil {
-				log.Println("failed to Read:", err)
-				packet.SendAck(ack.NotFound)
-				return false
-			}
-			md5Bytes := packet.Data.FileMd5
-			if md5Bytes[0] != 0 {
-				nameBytes := packet.Data.FileName
-				fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
-				filePath := filepath.Join(arguments.BackendPathArray[0], fileRelativePath)
-				hashPath := filepath.Dir(filePath) + "/.hash"
-				hashFile, _ := os.OpenFile(hashPath, os.O_RDONLY, 0644)
-				buf := make([]byte, 33)
-				for {
-					_, err := hashFile.Read(buf)
-					if err != nil {
-						log.Println(err)
-						packet.SendAck(ack.NotFound)
-						return false
-					}
-					if string(md5Bytes[:32]) == string(buf[:32]) {
-						break
-					}
-				}
-			}
-			if !packet.SendAck(ack.OK) {
-				return false
-			}
-			break
+			return d.handleDownloadBlockEnd(packet)
 		} else {
 			buf := make([]byte, packet.Header.Count)
-			n, err := packet.Fds[0].ReadAt(buf, int64(packet.Header.Offset))
+			n, err := d.ReadFds[0].ReadAt(buf, int64(packet.Header.Offset))
 			if err != nil {
 				log.Println(err)
 				packet.SendAck(ack.NotFound)
@@ -198,6 +179,41 @@ func handleDownloadBlock(packet *protocol.Packet) bool {
 				return false
 			}
 		}
+	}
+}
+
+func (d *DownloadHandler) handleDownloadBlockEnd(packet *protocol.Packet) bool {
+	if err := d.ReadFds[0].Close(); err != nil {
+		packet.SendAck(ack.NotFound)
+		return false
+	}
+	if err := packet.UnmarshalTaskInfo(); err != nil {
+		log.Println("failed to Read:", err)
+		packet.SendAck(ack.NotFound)
+		return false
+	}
+	md5Bytes := packet.Data.FileMd5
+	if md5Bytes[0] != 0 {
+		nameBytes := packet.Data.FileName
+		fileRelativePath := string(nameBytes[:bytes.Index(nameBytes[:], []byte{0})])
+		filePath := filepath.Join(arguments.BackendPathArray[0], fileRelativePath)
+		hashPath := filepath.Dir(filePath) + "/.hash"
+		hashFile, _ := os.OpenFile(hashPath, os.O_RDONLY, 0644)
+		buf := make([]byte, 33)
+		for {
+			_, err := hashFile.Read(buf)
+			if err != nil {
+				log.Println(err)
+				packet.SendAck(ack.NotFound)
+				return false
+			}
+			if string(md5Bytes[:32]) == string(buf[:32]) {
+				break
+			}
+		}
+	}
+	if !packet.SendAck(ack.OK) {
+		return false
 	}
 	return true
 }

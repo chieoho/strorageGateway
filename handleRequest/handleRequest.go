@@ -9,6 +9,10 @@ import (
 	"../protocol"
 )
 
+type CmdHandler interface {
+	Handle(packet *protocol.Packet) bool
+}
+
 func HandleRequest(conn net.Conn) {
 	defer func() {
 		err := conn.Close() // close connection before exit
@@ -29,15 +33,18 @@ func HandleRequest(conn net.Conn) {
 }
 
 func handleCommand(packet protocol.Packet) bool {
+	var cmdHandler CmdHandler
+
 	switch packet.Header.Command {
 	case command.UploadReq:
-		return handleUpload(&packet)
+		cmdHandler = &UploadHandler{}
 	case command.DownloadReq:
-		return handleDownload(&packet)
+		cmdHandler = &DownloadHandler{}
 	default:
 		log.Println("unknown command")
 		return false
 	}
+	return cmdHandler.Handle(&packet)
 }
 
 func CheckTcpError(err error) {
