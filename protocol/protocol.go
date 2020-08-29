@@ -1,12 +1,14 @@
 package protocol
 
 import (
-	"../command"
 	"bytes"
 	"encoding/binary"
 	"io"
 	"log"
 	"net"
+
+	"../acknowledge"
+	"../command"
 )
 
 const (
@@ -99,13 +101,15 @@ func (p *Packet) Marshal(packet interface{}) (error, []byte) {
 	return err, buf.Bytes()
 }
 
-func (p *Packet) SendAck(ack uint32) bool {
+func (p *Packet) SendAck(cmd uint32, ack uint32) bool {
+	p.Header.Command = cmd
 	p.Header.AckCode = ack
 	return p.sendData(nil)
 }
 
 func (p *Packet) SendBlock(dataBytes []byte) bool {
 	p.Header.Command = command.DownloadBlockRet
+	p.Header.AckCode = ackCode.OK
 	return p.sendData(dataBytes)
 }
 

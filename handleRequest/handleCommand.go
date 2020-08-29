@@ -38,7 +38,7 @@ func (u *UploadHandler) Handle(packet *protocol.Packet) bool {
 func (u *UploadHandler) handleStartUpload(packet *protocol.Packet) bool {
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
-		packet.SendAck(ack.NotFound)
+		packet.SendAck(command.UploadReqRet, ackCode.NotFound)
 		return false
 	}
 	nameBytes := packet.Data.FileName
@@ -48,18 +48,18 @@ func (u *UploadHandler) handleStartUpload(packet *protocol.Packet) bool {
 		log.Printf("%s", filePath)
 		if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
 			log.Printf("create dir err: %s", err)
-			packet.SendAck(ack.NotFound)
+			packet.SendAck(command.UploadReqRet, ackCode.NotFound)
 			return false
 		}
 		fd, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			log.Println(err)
-			packet.SendAck(ack.NotFound)
+			packet.SendAck(command.UploadReqRet, ackCode.NotFound)
 			return false
 		}
 		u.WriteFds = append(u.WriteFds, fd)
 	}
-	if !packet.SendAck(ack.OK) {
+	if !packet.SendAck(command.UploadReqRet, ackCode.OK) {
 		return false
 	}
 	return true
@@ -70,16 +70,16 @@ func (u *UploadHandler) handleUploadBlock(packet *protocol.Packet) bool {
 	for {
 		res := packet.RecvData()
 		if !res {
-			packet.SendAck(ack.NotFound)
+			packet.SendAck(command.UploadBlockRet, ackCode.NotFound)
 			return false
 		}
 		if packet.Header.Command == command.UploadBlock {
 			for _, fd := range u.WriteFds {
 				if _, err := fd.Write(packet.DataBytes); err != nil {
-					packet.SendAck(ack.NotFound)
+					packet.SendAck(command.UploadBlockRet, ackCode.NotFound)
 					return false
 				}
-				if !packet.SendAck(ack.OK) {
+				if !packet.SendAck(command.UploadBlockRet, ackCode.OK) {
 					return false
 				}
 			}
@@ -93,7 +93,7 @@ func (u *UploadHandler) handleUploadBlock(packet *protocol.Packet) bool {
 func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {
 	for _, fd := range u.WriteFds {
 		if err := fd.Close(); err != nil {
-			packet.SendAck(ack.NotFound)
+			packet.SendAck(command.UploadBlockEndRet, ackCode.NotFound)
 			return false
 		}
 	}
@@ -101,7 +101,7 @@ func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {
 	md5Str := hex.EncodeToString(cipherStr)
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
-		packet.SendAck(ack.NotFound)
+		packet.SendAck(command.UploadBlockEndRet, ackCode.NotFound)
 		return false
 	}
 	md5Bytes := packet.Data.FileMd5
@@ -116,7 +116,7 @@ func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {
 		hashFile, _ := os.OpenFile(hashPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 		_, _ = hashFile.Write([]byte(md5Str + "\n"))
 	}
-	if !packet.SendAck(ack.OK) {
+	if !packet.SendAck(command.UploadBlockEndRet, ackCode.OK) {
 		return false
 	}
 	return true
@@ -136,7 +136,7 @@ func (d *DownloadHandler) Handle(packet *protocol.Packet) bool {
 func (d *DownloadHandler) handleStartDownload(packet *protocol.Packet) bool {
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
-		packet.SendAck(ack.NotFound)
+		packet.SendAck(command.DownloadReqRet, ackCode.NotFound)
 		return false
 	}
 	nameBytes := packet.Data.FileName
@@ -146,13 +146,13 @@ func (d *DownloadHandler) handleStartDownload(packet *protocol.Packet) bool {
 	fd, err := os.OpenFile(filePath, os.O_RDONLY, 0644)
 	if err != nil {
 		log.Println(err)
-		packet.SendAck(ack.NotFound)
+		packet.SendAck(command.DownloadReqRet, ackCode.NotFound)
 		return false
 	}
 	d.ReadFds = append(d.ReadFds, fd)
 	fi, _ := fd.Stat()
 	packet.Header.Total = uint64(fi.Size())
-	if !packet.SendAck(ack.OK) {
+	if !packet.SendAck(command.DownloadReqRet, ackCode.OK) {
 		return false
 	}
 	return true
@@ -162,9 +162,10 @@ func (d *DownloadHandler) handleDownloadBlock(packet *protocol.Packet) bool {
 	for {
 		res := packet.RecvData()
 		if !res {
-			packet.SendAck(ack.NotFound)
+			packet.SendAck(command.DownloadBlockRet, ackCode.NotFound)
 			return false
 		}
+
 		if packet.Header.Command == command.DownloadBlockEnd {
 			return d.handleDownloadBlockEnd(packet)
 		} else {
@@ -172,7 +173,7 @@ func (d *DownloadHandler) handleDownloadBlock(packet *protocol.Packet) bool {
 			n, err := d.ReadFds[0].ReadAt(buf, int64(packet.Header.Offset))
 			if err != nil {
 				log.Println(err)
-				packet.SendAck(ack.NotFound)
+				packet.SendAck(command.DownloadBlockRet, ackCode.NotFound)
 				return false
 			}
 			if !packet.SendBlock(buf[:n]) {
@@ -184,12 +185,12 @@ func (d *DownloadHandler) handleDownloadBlock(packet *protocol.Packet) bool {
 
 func (d *DownloadHandler) handleDownloadBlockEnd(packet *protocol.Packet) bool {
 	if err := d.ReadFds[0].Close(); err != nil {
-		packet.SendAck(ack.NotFound)
+		packet.SendAck(command.DownloadBlockEndRet, ackCode.NotFound)
 		return false
 	}
 	if err := packet.UnmarshalTaskInfo(); err != nil {
 		log.Println("failed to Read:", err)
-		packet.SendAck(ack.NotFound)
+		packet.SendAck(command.DownloadBlockEndRet, ackCode.NotFound)
 		return false
 	}
 	md5Bytes := packet.Data.FileMd5
@@ -204,7 +205,7 @@ func (d *DownloadHandler) handleDownloadBlockEnd(packet *protocol.Packet) bool {
 			_, err := hashFile.Read(buf)
 			if err != nil {
 				log.Println(err)
-				packet.SendAck(ack.NotFound)
+				packet.SendAck(command.DownloadBlockEndRet, ackCode.NotFound)
 				return false
 			}
 			if string(md5Bytes[:32]) == string(buf[:32]) {
@@ -212,7 +213,7 @@ func (d *DownloadHandler) handleDownloadBlockEnd(packet *protocol.Packet) bool {
 			}
 		}
 	}
-	if !packet.SendAck(ack.OK) {
+	if !packet.SendAck(command.DownloadBlockEndRet, ackCode.OK) {
 		return false
 	}
 	return true
