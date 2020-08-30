@@ -20,10 +20,6 @@ type UploadHandler struct {
 	md5Ctx   hash.Hash
 }
 
-type DownloadHandler struct {
-	ReadFds []*os.File
-}
-
 func (u *UploadHandler) Handle(packet *protocol.Packet) bool {
 	res := u.handleStartUpload(packet)
 	if !res {
@@ -120,6 +116,10 @@ func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {
 		return false
 	}
 	return true
+}
+
+type DownloadHandler struct {
+	ReadFds []*os.File
 }
 
 func (d *DownloadHandler) Handle(packet *protocol.Packet) bool {
