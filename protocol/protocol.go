@@ -3,11 +3,14 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"log"
 	"net"
+	"time"
 
 	"../acknowledge"
+	"../arguments"
 	"../command"
 )
 
@@ -18,6 +21,8 @@ const (
 	PacketLenBytesNum = 4
 	MsgHeaderLen      = 64
 	TaskInfoLen       = 341
+
+	HeartBeatHeaderLen = 8
 )
 
 type MsgHeader struct {
@@ -133,4 +138,30 @@ func (p *Packet) checkIOReadErr(err error, info string) bool {
 		return false
 	}
 	return true
+}
+
+type HeartBeat struct {
+	MsgLength uint32
+	Command   uint32
+}
+
+func (h *HeartBeat) SendHB() {
+	h.Command = command.AamHb
+	jsonBytes, _ := json.Marshal(map[string]int{"region_id": arguments.RegionId})
+	h.MsgLength = uint32(HeartBeatHeaderLen + len(jsonBytes))
+	buf := new(bytes.Buffer)
+	_ = binary.Write(buf, binary.BigEndian, h)
+	heartBeatBytes := append(buf.Bytes(), jsonBytes...)
+	conn, err := net.Dial("tcp", arguments.AsmAddr)
+	if err != nil {
+		log.Println(err)
+	}
+	for {
+		_, err = conn.Write(heartBeatBytes)
+		if err != nil {
+			log.Println(err)
+			conn, _ = net.Dial("tcp", arguments.AsmAddr)
+		}
+		time.Sleep(3 * time.Second)
+	}
 }

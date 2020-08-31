@@ -8,6 +8,7 @@ import (
 
 	"./arguments"
 	"./handleRequest"
+	"./protocol"
 )
 
 // init is called prior to main.
@@ -24,13 +25,12 @@ func init() {
 }
 
 func main() {
-	service := "0.0.0.0:" + arguments.ServerPort
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", arguments.ServerAddr)
 	handler.CheckTcpError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	handler.CheckTcpError(err)
-	log.Printf("serve on %s", service)
-	log.Printf("backend path list: %v", arguments.BackendPathArray)
+	var heartBeat protocol.HeartBeat
+	go heartBeat.SendHB()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

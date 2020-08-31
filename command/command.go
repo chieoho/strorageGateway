@@ -13,4 +13,6 @@ const (
 	DownloadBlockRet    = DownloadBlock + 1
 	DownloadBlockEnd    = 0x2000B
 	DownloadBlockEndRet = DownloadBlockEnd + 1
+
+	AamHb = 0x00080001
 )

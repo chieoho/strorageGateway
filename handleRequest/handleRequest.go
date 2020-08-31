@@ -16,7 +16,9 @@ type CmdHandler interface {
 func HandleRequest(conn net.Conn) {
 	defer func() {
 		err := conn.Close() // close connection before exit
-		log.Println(err)
+		if err != nil {
+			log.Println(err)
+		}
 	}()
 	//_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute)) // set 2 minutes timeout
 	var packet = protocol.Packet{Conn: conn}
