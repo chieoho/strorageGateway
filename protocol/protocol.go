@@ -143,6 +143,7 @@ func (p *Packet) checkIOReadErr(err error, info string) bool {
 type HeartBeat struct {
 	MsgLength uint32
 	Command   uint32
+	data      [0]byte
 }
 
 func (h *HeartBeat) SendHB() {
