@@ -15,9 +15,12 @@ import (
 	"../protocol"
 )
 
+const WriteBufMaxSize = 4 * 1024 * 1024
+
 type UploadHandler struct {
 	WriteFds []*os.File
 	md5Ctx   hash.Hash
+	WriteBuf []byte
 }
 
 func (u *UploadHandler) Handle(packet *protocol.Packet) bool {
@@ -70,20 +73,34 @@ func (u *UploadHandler) handleUploadBlock(packet *protocol.Packet) bool {
 			return false
 		}
 		if packet.Header.Command == command.UploadBlock {
-			for _, fd := range u.WriteFds {
-				if _, err := fd.Write(packet.DataBytes); err != nil {
-					packet.SendAck(command.UploadBlockRet, ackCode.NotFound)
-					return false
-				}
-				if !packet.SendAck(command.UploadBlockRet, ackCode.OK) {
+			if len(u.WriteBuf)+(len(packet.Bytes)-protocol.MsgHeaderLen) > WriteBufMaxSize {
+				if !u.writeData() {
 					return false
 				}
 			}
-			u.md5Ctx.Write(packet.DataBytes)
+			u.WriteBuf = append(u.WriteBuf, packet.Bytes[protocol.MsgHeaderLen:]...)
+			if !packet.SendAck(command.UploadBlockRet, ackCode.OK) {
+				return false
+			}
 		} else {
+			if !u.writeData() {
+				return false
+			}
 			return u.handleUploadBlockEnd(packet)
 		}
 	}
+}
+
+func (u *UploadHandler) writeData() bool {
+	for _, fd := range u.WriteFds {
+		if _, err := fd.Write(u.WriteBuf); err != nil {
+			log.Println(err)
+			return false
+		}
+	}
+	u.md5Ctx.Write(u.WriteBuf)
+	u.WriteBuf = u.WriteBuf[:0]
+	return true
 }
 
 func (u *UploadHandler) handleUploadBlockEnd(packet *protocol.Packet) bool {

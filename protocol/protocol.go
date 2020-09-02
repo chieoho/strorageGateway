@@ -20,7 +20,7 @@ const (
 
 	PacketLenBytesNum = 4
 	MsgHeaderLen      = 64
-	TaskInfoLen       = 341
+	BlockMaxSize      = 4 * 1024 * 1024
 
 	HeartBeatHeaderLen = 8
 )
@@ -66,31 +66,35 @@ type TaskInfo struct {
 }
 
 type Packet struct {
-	Header    MsgHeader
-	Data      TaskInfo
-	DataBytes []byte
-	Conn      net.Conn
+	Header         MsgHeader
+	Data           TaskInfo
+	PacketLenBytes []byte //4
+	Bytes          []byte //64 + 4M
+	Conn           net.Conn
+}
+
+func (p *Packet) Init() {
+	p.PacketLenBytes = make([]byte, PacketLenBytesNum)
+	p.Bytes = make([]byte, MsgHeaderLen+BlockMaxSize)
 }
 
 func (p *Packet) RecvData() bool {
-	packetLenBytes := make([]byte, PacketLenBytesNum)
-	_, err := io.ReadFull(p.Conn, packetLenBytes)
+	_, err := io.ReadFull(p.Conn, p.PacketLenBytes)
 	if !p.checkIOReadErr(err, "read packet length bytes") {
 		return false
 	}
-	msgLength := binary.BigEndian.Uint32(packetLenBytes)
-	msgBytes := make([]byte, msgLength)
-	_, err = io.ReadFull(p.Conn, msgBytes[PacketLenBytesNum:])
+	msgLength := binary.BigEndian.Uint32(p.PacketLenBytes)
+	p.Bytes = p.Bytes[:msgLength]
+	_, err = io.ReadFull(p.Conn, p.Bytes[PacketLenBytesNum:])
 	if !p.checkIOReadErr(err, "read packet body bytes") {
 		return false
 	}
-	_ = p.unmarshal(msgBytes[:MsgHeaderLen], &p.Header)
-	p.DataBytes = msgBytes[MsgHeaderLen:]
+	_ = p.unmarshal(p.Bytes[:MsgHeaderLen], &p.Header)
 	return true
 }
 
 func (p *Packet) UnmarshalTaskInfo() error {
-	err := p.unmarshal(p.DataBytes, &p.Data)
+	err := p.unmarshal(p.Bytes[MsgHeaderLen:], &p.Data)
 	return err
 }
 

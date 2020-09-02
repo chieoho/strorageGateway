@@ -6,11 +6,11 @@ import (
 )
 
 func TestUnmarshalHeader(t *testing.T) {
-	inBytes := make([]byte, MsgHeaderLen)
 	var packet Packet
 
-	inBytes[3] = MsgHeaderLen
-	err := packet.unmarshal(inBytes, &packet.Header)
+	packet.Init()
+	packet.Bytes[3] = MsgHeaderLen
+	err := packet.unmarshal(packet.Bytes[:MsgHeaderLen], &packet.Header)
 	if err != nil {
 		fmt.Println("failed to Read:", err)
 	}
@@ -20,12 +20,11 @@ func TestUnmarshalHeader(t *testing.T) {
 }
 
 func TestUnmarshalTaskInfo(t *testing.T) {
-	inBytes := make([]byte, TaskInfoLen)
 	var packet Packet
 	const regionId = 8
 
-	inBytes[3] = regionId
-	packet.DataBytes = inBytes
+	packet.Init()
+	packet.Bytes[MsgHeaderLen+3] = regionId
 	err := packet.UnmarshalTaskInfo()
 	if err != nil {
 		fmt.Println("failed to Read:", err)

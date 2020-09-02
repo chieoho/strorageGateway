@@ -21,7 +21,9 @@ func HandleRequest(conn net.Conn) {
 		}
 	}()
 	//_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute)) // set 2 minutes timeout
-	var packet = protocol.Packet{Conn: conn}
+	var packet protocol.Packet
+	packet.Init()
+	packet.Conn = conn
 	for {
 		res := packet.RecvData()
 		if !res {
